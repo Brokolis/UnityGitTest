@@ -35,3 +35,9 @@ sysinfo.txt
 # Builds
 *.apk
 *.unitypackage
+
+# JetBrains IDEs
+.idea
+
+# MacOS
+.DS_Store
