@@ -12,7 +12,7 @@ public class ShapeGenerator : MonoBehaviour {
 
     public MeshShape shape = MeshShape.Triangle;
 
-    private MeshFilter meshFilter = null; // Change the world
+    private MeshFilter meshFilter = null; // Change the world!
     private MeshShape? currentShape = null;
 
     // Start is called before the first frame update
