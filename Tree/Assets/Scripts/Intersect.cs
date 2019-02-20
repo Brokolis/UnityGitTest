@@ -22,23 +22,16 @@ public class Intersect : MonoBehaviour {
         bool intersects = GetIntersect(targetMeshFilter, subtractMeshFilter, ref i1, ref i2);
 
         light.enabled = intersects;
-        
+
         if (intersects) {
             Debug.DrawLine(i1, i2, new Color(0f, 1f, 0f, 0.5f), 0f, false);
         }
     }
 
-    // https://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
+    // Adapted from: https://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
+    // TODO: This might not work correctly when one or more points are directly on one of the planes.
     bool GetIntersect(MeshFilter targetMeshFilter, MeshFilter subtractMeshFilter, ref Vector3 i1, ref Vector3 i2) {
         const float epsilon = 0.000001f;
-
-        bool equals(float n1, float n2) => Mathf.Abs(n1 - n2) <= epsilon;
-
-        void swap<T>(T[] a, int i, int j) {
-            T temp = a[i];
-            a[i] = a[j];
-            a[j] = temp;
-        }
 
         Mesh target = targetMeshFilter.mesh;
         Mesh subtract = subtractMeshFilter.mesh;
@@ -59,16 +52,25 @@ public class Intersect : MonoBehaviour {
         Vector3 N2 = Vector3.Cross(V2[1] - V2[0], V2[2] - V2[0]);
         float d2 = Vector3.Dot(-N2, V2[0]);
 
-        // Get distances between points V1i and plane 2
+        // Get distances between points V1 and plane 2
         float[] dV1 = {
             Vector3.Dot(N2, V1[0]) + d2,
             Vector3.Dot(N2, V1[1]) + d2,
             Vector3.Dot(N2, V1[2]) + d2
         };
 
+        // Get the sign of the distances by assigning -1, 0 or 1
+        int[] sV1 = {
+            dV1[0] < -epsilon ? -1 : dV1[0] > epsilon ? 1 : 0,
+            dV1[1] < -epsilon ? -1 : dV1[1] > epsilon ? 1 : 0,
+            dV1[2] < -epsilon ? -1 : dV1[2] > epsilon ? 1 : 0
+        };
+
+        bool equals(float n1, float n2) => Mathf.Abs(n1 - n2) <= epsilon;
+
         // Early rejection
-        if (!equals(dV1[0], 0) && !equals(dV1[1], 0) && !equals(dV1[2], 0) &&
-            (dV1[0] < 0 && dV1[1] < 0 && dV1[2] < 0 || dV1[0] > 0 && dV1[1] > 0 && dV1[2] > 0)) {
+        if (sV1[0] == 0 && sV1[1] == 0 && sV1[2] == 0 &&
+            (sV1[0] < 0 && sV1[1] < 0 && sV1[2] < 0 || sV1[0] > 0 && sV1[1] > 0 && sV1[2] > 0)) {
             return false;
         }
 
@@ -76,41 +78,76 @@ public class Intersect : MonoBehaviour {
         Vector3 N1 = Vector3.Cross(V1[1] - V1[0], V1[2] - V1[0]);
         float d1 = Vector3.Dot(-N1, V1[0]);
 
-        // Get distances between points V2i and plane 1
+        // Get distances between points V2 and plane 1
         float[] dV2 = {
             Vector3.Dot(N1, V2[0]) + d1,
             Vector3.Dot(N1, V2[1]) + d1,
             Vector3.Dot(N1, V2[2]) + d1
         };
+        
+        // Get the sign of the distances by assigning -1, 0 or 1
+        int[] sV2 = {
+            dV2[0] < -epsilon ? -1 : dV2[0] > epsilon ? 1 : 0,
+            dV2[1] < -epsilon ? -1 : dV2[1] > epsilon ? 1 : 0,
+            dV2[2] < -epsilon ? -1 : dV2[2] > epsilon ? 1 : 0
+        };
 
         // Early rejection
-        if (!equals(dV2[0], 0) && !equals(dV2[1], 0) && !equals(dV2[2], 0) &&
-            (dV2[0] < 0 && dV2[1] < 0 && dV2[2] < 0 || dV2[0] > 0 && dV2[1] > 0 && dV2[2] > 0)) {
+        if (sV2[0] == 0 && sV2[1] == 0 && sV2[2] == 0 &&
+            (sV2[0] < 0 && sV2[1] < 0 && sV2[2] < 0 || sV2[0] > 0 && sV2[1] > 0 && sV2[2] > 0)) {
             return false;
         }
 
         // Triangles are co-planar, I don't need this case
-        if (equals(dV1[0], 0) && equals(dV1[1], 0) && equals(dV1[2], 0)) {
+        if (sV1[0] == 0 && sV1[1] == 0 && sV1[2] == 0) {
             return false;
+        }
+
+        void swap<T>(T[] a, int i, int j) {
+            T temp = a[i];
+            a[i] = a[j];
+            a[j] = temp;
         }
 
         // Order the vertices, so that the one, on the opposite side of the plane to
         // the two others is in the middle
 
-        if (dV1[1] * dV1[2] >= 0f) {
+        // Also, check if one of the points isn't just on the plane itself
+
+        if (sV1[1] * sV1[2] > 0) {
+            if (sV1[0] == 0) {
+                return false;
+            }
+
             swap(V1, 0, 1);
             swap(dV1, 0, 1);
-        } else if (dV1[0] * dV1[1] >= 0f) {
+            swap(sV1, 0, 1);
+        } else if (sV1[0] * sV1[1] > 0) {
+            if (sV1[2] == 0) {
+                return false;
+            }
+
             swap(V1, 1, 2);
             swap(dV1, 1, 2);
+            swap(sV1, 1, 2);
         }
 
-        if (dV2[1] * dV2[2] >= 0f) {
+        if (sV2[1] * sV2[2] > 0) {
+            if (sV2[0] == 0) {
+                return false;
+            }
+
             swap(V2, 0, 1);
             swap(dV2, 0, 1);
-        } else if (dV2[0] * dV2[1] >= 0f) {
+            swap(sV2, 0, 1);
+        } else if (sV2[0] * sV2[1] > 0) {
+            if (sV2[2] == 0) {
+                return false;
+            }
+
             swap(V2, 1, 2);
             swap(dV2, 1, 2);
+            swap(sV2, 1, 2);
         }
 
         // Direction of line
@@ -167,10 +204,10 @@ public class Intersect : MonoBehaviour {
         }
 
         bool intersects = false;
-        
+
         if (between(t2[0], t1)) {
             i1 = intersectSwapped(t2Swapped, 0, V2, dV2);
-            
+
             if (between(t2[1], t1)) {
                 i2 = intersectSwapped(t2Swapped, 1, V2, dV2);
             } else {
@@ -182,7 +219,8 @@ public class Intersect : MonoBehaviour {
             i1 = intersectSwapped(t2Swapped, 1, V2, dV2);
             i2 = intersectSwapped(t1Swapped, 0, V1, dV1);
             intersects = true;
-        } else if (between(t1[0], t2)) { // or between(t1[1], t2) - they are both either inside or outside
+        } else if (between(t1[0], t2)) {
+            // or between(t1[1], t2) - they are both either inside or outside
             i1 = intersectSwapped(t1Swapped, 0, V1, dV1);
             i2 = intersectSwapped(t1Swapped, 1, V1, dV1);
             intersects = true;
