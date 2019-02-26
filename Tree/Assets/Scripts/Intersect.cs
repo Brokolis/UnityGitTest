@@ -14,6 +14,8 @@ public class Intersect : MonoBehaviour {
 
     public Vector3 i1, i2;
 
+    private event Action gizmos;
+
     void Start() {
         meshFilter = GetComponent<MeshFilter>();
         light = GetComponent<Light>();
@@ -35,9 +37,10 @@ public class Intersect : MonoBehaviour {
             subtractMeshFilter.transform.TransformPoint(subtract.vertices[subtract.triangles[2]])
         };
 
-        Vector3[] upperV = null, lowerV = null;
+        Vector3[] upperV = null;
+        gizmos = null;
 
-        bool intersects = GetIntersect(V1, V2, ref upperV, ref lowerV);
+        bool intersects = GetIntersect(V1, V2, ref upperV);
 
         light.enabled = intersects;
 
@@ -50,19 +53,32 @@ public class Intersect : MonoBehaviour {
         }
     }
 
+    void OnDrawGizmos() {
+        gizmos?.Invoke();
+    }
+
     void DrawPolygon(Vector3[] vertices, Color color) {
+        Color[] vertexColors = {
+            new Color(1f, 0f, 0f, 0.5f), new Color(0f, 1f, 0f, 0.5f), new Color(0f, 0f, 1f, 0.5f), new Color(0f, 1f, 1f, 0.5f)
+        };
+
         Vector3 prevVertex = vertices.Last();
-        
+
         for (int i = 0; i < vertices.Length; i++) {
             Vector3 currentVertex = vertices[i];
             Debug.DrawLine(prevVertex, currentVertex, color, 0f, false);
+            int index = i;
+            gizmos += () => {
+                Gizmos.color = vertexColors[index];
+                Gizmos.DrawSphere(currentVertex, 0.03f);
+            };
             prevVertex = currentVertex;
         }
     }
 
     // Adapted from: https://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
     // TODO: This might not work correctly when one or more points are directly on one of the planes.
-    bool GetIntersect(Vector3[] V1, Vector3[] V2, ref Vector3[] upperV, ref Vector3[] lowerV) {
+    bool GetIntersect(Vector3[] V1, Vector3[] V2, ref Vector3[] upperV) {
         const float epsilon = 0.000001f;
 
         // Construct plane 2
@@ -83,11 +99,8 @@ public class Intersect : MonoBehaviour {
             dV1[2] < -epsilon ? -1 : dV1[2] > epsilon ? 1 : 0
         };
 
-        bool equals(float n1, float n2) => Mathf.Abs(n1 - n2) <= epsilon;
-
         // Early rejection
-        if (sV1[0] == 0 && sV1[1] == 0 && sV1[2] == 0 &&
-            (sV1[0] < 0 && sV1[1] < 0 && sV1[2] < 0 || sV1[0] > 0 && sV1[1] > 0 && sV1[2] > 0)) {
+        if (sV1[0] >= 0 && sV1[1] >= 0 && sV1[2] >= 0 || sV1[0] <= 0 && sV1[1] <= 0 && sV1[2] <= 0) {
             return false;
         }
 
@@ -110,73 +123,64 @@ public class Intersect : MonoBehaviour {
         };
 
         // Early rejection
-        if (sV2[0] == 0 && sV2[1] == 0 && sV2[2] == 0 &&
-            (sV2[0] < 0 && sV2[1] < 0 && sV2[2] < 0 || sV2[0] > 0 && sV2[1] > 0 && sV2[2] > 0)) {
+        if (sV2[0] >= 0 && sV2[1] >= 0 && sV2[2] >= 0 || sV2[0] <= 0 && sV2[1] <= 0 && sV2[2] <= 0) {
             return false;
         }
 
-        // Triangles are co-planar, I don't need this case
-        if (sV1[0] == 0 && sV1[1] == 0 && sV1[2] == 0) {
-            return false;
-        }
+        void rotate3<T>(T[] a, bool right) {
+            if (right) {
+                T temp = a[2];
 
-        void swap<T>(T[] a, int i, int j) {
-            T temp = a[i];
-            a[i] = a[j];
-            a[j] = temp;
+                a[2] = a[1];
+                a[1] = a[0];
+                a[0] = temp;
+            } else {
+                T temp = a[0];
+
+                a[0] = a[1];
+                a[1] = a[2];
+                a[2] = temp;
+            }
         }
 
         // Order the vertices, so that the one, on the opposite side of the plane to
         // the two others is in the middle
 
         // Also, check if one of the points isn't just on the plane itself
-
-        int V1middlePosition = 1;
         if (sV1[1] * sV1[2] > 0) {
             if (sV1[0] == 0) {
                 return false;
             }
-
-            V1middlePosition = 0;
-
-            swap(V1, 0, 1);
-            swap(dV1, 0, 1);
-            swap(sV1, 0, 1);
-        }
-        else if (sV1[0] * sV1[1] > 0) {
+            
+            rotate3(V1, true);
+            rotate3(dV1, true);
+            rotate3(sV1, true);
+        } else if (sV1[0] * sV1[1] > 0) {
             if (sV1[2] == 0) {
                 return false;
             }
-
-            V1middlePosition = 2;
-
-            swap(V1, 1, 2);
-            swap(dV1, 1, 2);
-            swap(sV1, 1, 2);
+            
+            rotate3(V1, false);
+            rotate3(dV1, false);
+            rotate3(sV1, false);
         }
 
-        int V2middlePosition = 1;
         if (sV2[1] * sV2[2] > 0) {
             if (sV2[0] == 0) {
                 return false;
             }
-
-            V2middlePosition = 0;
-
-            swap(V2, 0, 1);
-            swap(dV2, 0, 1);
-            swap(sV2, 0, 1);
-        }
-        else if (sV2[0] * sV2[1] > 0) {
+            
+            rotate3(V2, true);
+            rotate3(dV2, true);
+            rotate3(sV2, true);
+        } else if (sV2[0] * sV2[1] > 0) {
             if (sV2[2] == 0) {
                 return false;
             }
-
-            V2middlePosition = 2;
-
-            swap(V2, 1, 2);
-            swap(dV2, 1, 2);
-            swap(sV2, 1, 2);
+            
+            rotate3(V2, false);
+            rotate3(dV2, false);
+            rotate3(sV2, false);
         }
 
         // Direction of line
@@ -202,81 +206,82 @@ public class Intersect : MonoBehaviour {
             t(pV1[1], pV1[2], dV1[1], dV1[2])
         };
 
-        bool t1Swapped = false;
-        if (t1[0] > t1[1]) {
-            swap(t1, 0, 1);
-            t1Swapped = true;
-        }
-
         float[] t2 = {
             t(pV2[0], pV2[1], dV2[0], dV2[1]),
             t(pV2[1], pV2[2], dV2[1], dV2[2])
         };
 
-        bool t2Swapped = false;
-        if (t2[0] > t2[1]) {
-            swap(t2, 0, 1);
-            t2Swapped = true;
-        }
+        bool betweenInclusive(float number, float[] bounds) =>
+            bounds[0] > bounds[1] ? number >= bounds[1] && number <= bounds[0] : number >= bounds[0] && number <= bounds[1];
 
-        bool between(float number, float[] bounds) => number >= bounds[0] - epsilon && number <= bounds[1] + epsilon;
+        bool betweenExclusive(float number, float[] bounds) =>
+            bounds[0] > bounds[1] ? number > bounds[1] && number < bounds[0] : number > bounds[0] && number < bounds[1];
 
         Vector3 intersect(Vector3 point1, Vector3 point2, float distance1, float distance2) =>
-            point1 + distance1 / (distance1 - distance2) * (point2 - point1);
+            point1 + (point2 - point1) * distance1 / (distance1 - distance2);
 
-        Vector3 intersectSwapped(bool swapped, int index, Vector3[] V, float[] d) {
-            if (swapped) {
-                index = index == 0 ? 1 : 0;
-            }
-
-            return intersect(V[index], V[index + 1], d[index], d[index + 1]);
-        }
+        Vector3 intersectVertices(int index, Vector3[] V, float[] d) => intersect(V[index], V[index + 1], d[index], d[index + 1]);
 
         bool intersects = false;
+        Vector3 i1 = Vector3.zero, i2 = Vector3.zero;
 
-        if (between(t2[0], t1)) {
-            i1 = intersectSwapped(t2Swapped, 0, V2, dV2);
+        if (betweenInclusive(t2[0], t1)) {
+            i1 = intersectVertices(0, V2, dV2);
 
-            if (between(t2[1], t1)) {
-                i2 = intersectSwapped(t2Swapped, 1, V2, dV2);
-            }
-            else {
-                i2 = intersectSwapped(t1Swapped, 1, V1, dV1);
-            }
-
-            intersects = true;
-        }
-        else if (between(t2[1], t1)) {
-            i1 = intersectSwapped(t2Swapped, 1, V2, dV2);
-            i2 = intersectSwapped(t1Swapped, 0, V1, dV1);
-            intersects = true;
-        }
-        // or between(t1[1], t2) - they are both either inside or outside
-        else if (between(t1[0], t2)) {
-            i1 = intersectSwapped(t1Swapped, 0, V1, dV1);
-            i2 = intersectSwapped(t1Swapped, 1, V1, dV1);
-
-            if (sV1[1] > 0) {
-                upperV = new Vector3[3];
-                upperV[0] = V1[1];
-
-                if (V1middlePosition == 2) {
-                    upperV[1] = i1;
-                    upperV[2] = i2;
+            if (betweenInclusive(t2[1], t1)) {
+                if (t1[0] < t1[1] && t2[1] > t2[0] || t1[0] > t1[1] && t2[1] < t2[0]) {
+                    i2 = i1;
+                    i1 = intersectVertices(1, V2, dV2);
                 } else {
-                    upperV[1] = i2;
-                    upperV[2] = i1;
+                    i2 = intersectVertices(1, V2, dV2);
                 }
+            } else if (betweenExclusive(t1[0], t2)) {
+                i2 = intersectVertices(0, V1, dV1);
+            } else if (betweenExclusive(t1[1], t2)) {
+                i2 = i1;
+                i1 = intersectVertices(1, V1, dV1);
+            }
+
+            intersects = true;
+        } else if (betweenInclusive(t2[1], t1)) {
+            i1 = intersectVertices(1, V2, dV2);
+
+            if (betweenExclusive(t1[0], t2)) {
+                i2 = intersectVertices(0, V1, dV1);
+            } else if (betweenExclusive(t1[1], t2)) {
+                i2 = i1;
+                i1 = intersectVertices(1, V1, dV1);
             }
 
             intersects = true;
         }
-
-        if (intersects) {
-            return true;
+        // or between(t1[1], t2) - they are both either inside or outside (on same side, thus not touching)
+        else if (betweenInclusive(t1[0], t2)) {
+            i1 = intersectVertices(1, V1, dV1);
+            i2 = intersectVertices(0, V1, dV1);
+            intersects = true;
         }
 
-        // The triangles don't intersect
-        return false;
+        if (!intersects) {
+            return false;
+        }
+
+        if (sV1[1] > 0) {
+            upperV = new Vector3[3];
+            upperV[0] = V1[1];
+            upperV[1] = i1;
+            upperV[2] = i2;
+        } else {
+            upperV = new Vector3[4];
+            upperV[0] = V1[2];
+            upperV[1] = V1[0];
+            upperV[2] = i2;
+            upperV[3] = i1;
+        }
+
+        this.i1 = i1;
+        this.i2 = i2;
+
+        return true;
     }
 }
