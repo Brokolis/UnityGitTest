@@ -22,6 +22,15 @@ public class Intersect : MonoBehaviour {
     }
 
     void Update() {
+        //Update_CutSingleTriangles();
+        Update_CutMesh();
+    }
+
+    void Update_CutMesh() {
+        meshFilter.mesh = CutMesh(targetMeshFilter, subtractMeshFilter);
+    }
+
+    void Update_CutSingleTriangles() {
         Mesh target = targetMeshFilter.mesh;
         Mesh subtract = subtractMeshFilter.mesh;
 
@@ -76,6 +85,64 @@ public class Intersect : MonoBehaviour {
         }
     }
 
+    Mesh CutMesh(MeshFilter targetMeshFilter, MeshFilter cuttingMeshFilter) {
+        Mesh targetMesh = targetMeshFilter.mesh;
+        Mesh cuttingMesh = cuttingMeshFilter.mesh;
+        
+        Vector3[] targetVertices = targetMesh.vertices;
+        int[] targetTriangles = targetMesh.triangles;
+
+        Vector3[] cuttingVertices = cuttingMesh.vertices;
+        int[] cuttingTriangles = cuttingMesh.triangles;
+        
+        List<Vector3> vertices = new List<Vector3>();
+        List<int> triangles = new List<int>();
+        
+        for (int i = 0; i < targetTriangles.Length; i += 3) {
+            for (int j = 0; j < cuttingTriangles.Length; j += 3) {
+                Vector3[] V1 = {
+                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 0]]),
+                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 1]]),
+                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 2]])
+                };
+
+                Vector3[] V2 = {
+                    subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 0]]),
+                    subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 1]]),
+                    subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 2]])
+                };
+                
+                Vector3[] upperV = null;
+                
+                bool intersects = GetIntersect(V1, V2, ref upperV);
+
+                if (intersects) {
+                    vertices.AddRange(upperV);
+                    int lastIndex = vertices.Count;
+                    
+                    if (upperV.Length == 3) {
+                        triangles.Add(lastIndex - 3);
+                        triangles.Add(lastIndex - 2);
+                        triangles.Add(lastIndex - 1);
+                    } else if (upperV.Length == 4) {
+                        triangles.Add(lastIndex - 4);
+                        triangles.Add(lastIndex - 3);
+                        triangles.Add(lastIndex - 2);
+                        
+                        triangles.Add(lastIndex - 4);
+                        triangles.Add(lastIndex - 2);
+                        triangles.Add(lastIndex - 1);
+                    }
+                }
+            }
+        }
+
+        return new Mesh {
+            vertices = vertices.ToArray(),
+            triangles = triangles.ToArray()
+        };
+    }
+    
     // Adapted from: https://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
     // TODO: This might not work correctly when one or more points are directly on one of the planes.
     bool GetIntersect(Vector3[] V1, Vector3[] V2, ref Vector3[] upperV) {
@@ -216,49 +283,47 @@ public class Intersect : MonoBehaviour {
 
         bool betweenExclusive(float number, float[] bounds) =>
             bounds[0] > bounds[1] ? number > bounds[1] && number < bounds[0] : number > bounds[0] && number < bounds[1];
-
-        Vector3 intersect(Vector3 point1, Vector3 point2, float distance1, float distance2) =>
-            point1 + (point2 - point1) * distance1 / (distance1 - distance2);
-
-        Vector3 intersectVertices(int index, Vector3[] V, float[] d) => intersect(V[index], V[index + 1], d[index], d[index + 1]);
+        
+        Vector3 intersect(int index, Vector3[] V, float[] d) =>
+            V[index] + (V[index + 1] - V[index]) * d[index] / (d[index] - d[index + 1]);
 
         bool intersects = false;
         Vector3 i1 = Vector3.zero, i2 = Vector3.zero;
 
         if (betweenInclusive(t2[0], t1)) {
-            i1 = intersectVertices(0, V2, dV2);
+            i1 = intersect(0, V2, dV2);
 
             if (betweenInclusive(t2[1], t1)) {
                 if (t1[0] < t1[1] && t2[1] > t2[0] || t1[0] > t1[1] && t2[1] < t2[0]) {
                     i2 = i1;
-                    i1 = intersectVertices(1, V2, dV2);
+                    i1 = intersect(1, V2, dV2);
                 } else {
-                    i2 = intersectVertices(1, V2, dV2);
+                    i2 = intersect(1, V2, dV2);
                 }
             } else if (betweenExclusive(t1[0], t2)) {
-                i2 = intersectVertices(0, V1, dV1);
+                i2 = intersect(0, V1, dV1);
             } else if (betweenExclusive(t1[1], t2)) {
                 i2 = i1;
-                i1 = intersectVertices(1, V1, dV1);
+                i1 = intersect(1, V1, dV1);
             }
 
             intersects = true;
         } else if (betweenInclusive(t2[1], t1)) {
-            i1 = intersectVertices(1, V2, dV2);
+            i1 = intersect(1, V2, dV2);
 
             if (betweenExclusive(t1[0], t2)) {
-                i2 = intersectVertices(0, V1, dV1);
+                i2 = intersect(0, V1, dV1);
             } else if (betweenExclusive(t1[1], t2)) {
                 i2 = i1;
-                i1 = intersectVertices(1, V1, dV1);
+                i1 = intersect(1, V1, dV1);
             }
 
             intersects = true;
         }
         // or between(t1[1], t2) - they are both either inside or outside (on same side, thus not touching)
         else if (betweenInclusive(t1[0], t2)) {
-            i1 = intersectVertices(1, V1, dV1);
-            i2 = intersectVertices(0, V1, dV1);
+            i1 = intersect(1, V1, dV1);
+            i2 = intersect(0, V1, dV1);
             intersects = true;
         }
 
