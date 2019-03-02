@@ -2,27 +2,23 @@
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using TMPro;
 using UnityEngine;
 using UnityEngine.Serialization;
+using UnityEngine.UI;
+using UnityEngine.XR.WSA.Input;
 
 public class Intersect : MonoBehaviour {
     public MeshFilter targetMeshFilter;
     public MeshFilter subtractMeshFilter;
 
     private MeshFilter meshFilter;
-    private Light light;
-
-    public Vector3 i1, i2;
-
-    private event Action gizmos;
 
     void Start() {
         meshFilter = GetComponent<MeshFilter>();
-        light = GetComponent<Light>();
     }
 
     void Update() {
-        //Update_CutSingleTriangles();
         Update_CutMesh();
     }
 
@@ -30,109 +26,107 @@ public class Intersect : MonoBehaviour {
         meshFilter.mesh = CutMesh(targetMeshFilter, subtractMeshFilter);
     }
 
-    void Update_CutSingleTriangles() {
-        Mesh target = targetMeshFilter.mesh;
-        Mesh subtract = subtractMeshFilter.mesh;
-
-        Vector3[] V1 = {
-            targetMeshFilter.transform.TransformPoint(target.vertices[target.triangles[0]]),
-            targetMeshFilter.transform.TransformPoint(target.vertices[target.triangles[1]]),
-            targetMeshFilter.transform.TransformPoint(target.vertices[target.triangles[2]])
-        };
-
-        Vector3[] V2 = {
-            subtractMeshFilter.transform.TransformPoint(subtract.vertices[subtract.triangles[0]]),
-            subtractMeshFilter.transform.TransformPoint(subtract.vertices[subtract.triangles[1]]),
-            subtractMeshFilter.transform.TransformPoint(subtract.vertices[subtract.triangles[2]])
-        };
-
-        Vector3[] upperV = null;
-        gizmos = null;
-
-        bool intersects = GetIntersect(V1, V2, ref upperV);
-
-        light.enabled = intersects;
-
-        if (intersects) {
-            Debug.DrawLine(i1, i2, new Color(0f, 1f, 0f, 0.5f), 0f, false);
-
-            if (upperV != null) {
-                DrawPolygon(upperV, new Color(1f, 0f, 0f, 0.5f));
-            }
-        }
-    }
-
-    void OnDrawGizmos() {
-        gizmos?.Invoke();
-    }
-
-    void DrawPolygon(Vector3[] vertices, Color color) {
-        Color[] vertexColors = {
-            new Color(1f, 0f, 0f, 0.5f), new Color(0f, 1f, 0f, 0.5f), new Color(0f, 0f, 1f, 0.5f), new Color(0f, 1f, 1f, 0.5f)
-        };
-
-        Vector3 prevVertex = vertices.Last();
-
-        for (int i = 0; i < vertices.Length; i++) {
-            Vector3 currentVertex = vertices[i];
-            Debug.DrawLine(prevVertex, currentVertex, color, 0f, false);
-            int index = i;
-            gizmos += () => {
-                Gizmos.color = vertexColors[index];
-                Gizmos.DrawSphere(currentVertex, 0.03f);
-            };
-            prevVertex = currentVertex;
-        }
-    }
-
     Mesh CutMesh(MeshFilter targetMeshFilter, MeshFilter cuttingMeshFilter) {
+        const float epsilon = 0.000001f;
+
+        bool floatEquals(float n1, float n2) => Math.Abs(n2 - n1) < epsilon;
+
+        bool vectorEquals(Vector3 vector1, Vector3 vector2)
+            => floatEquals(vector1.x, vector2.x) && floatEquals(vector1.y, vector2.y) && floatEquals(vector1.z, vector2.z);
+
         Mesh targetMesh = targetMeshFilter.mesh;
         Mesh cuttingMesh = cuttingMeshFilter.mesh;
-        
+
         Vector3[] targetVertices = targetMesh.vertices;
         int[] targetTriangles = targetMesh.triangles;
 
         Vector3[] cuttingVertices = cuttingMesh.vertices;
         int[] cuttingTriangles = cuttingMesh.triangles;
-        
+
         List<Vector3> vertices = new List<Vector3>();
         List<int> triangles = new List<int>();
-        
-        for (int i = 0; i < targetTriangles.Length; i += 3) {
-            for (int j = 0; j < cuttingTriangles.Length; j += 3) {
-                Vector3[] V1 = {
-                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 0]]),
-                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 1]]),
-                    targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 2]])
-                };
 
+        for (int i = 0; i < targetTriangles.Length; i += 3) {
+            int lastTriangleCount = triangles.Count;
+
+            Vector3[] V1 = {
+                targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 0]]),
+                targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 1]]),
+                targetMeshFilter.transform.TransformPoint(targetVertices[targetTriangles[i + 2]])
+            };
+
+            for (int j = 0; j < cuttingTriangles.Length; j += 3) {
                 Vector3[] V2 = {
                     subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 0]]),
                     subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 1]]),
                     subtractMeshFilter.transform.TransformPoint(cuttingVertices[cuttingTriangles[j + 2]])
                 };
-                
-                Vector3[] upperV = null;
-                
-                bool intersects = GetIntersect(V1, V2, ref upperV);
 
-                if (intersects) {
+                Vector3[] upperV = null;
+
+                if (GetIntersect(V1, V2, ref upperV)) {
                     vertices.AddRange(upperV);
+
+                    int lastIndex = vertices.Count;
+
+                    triangles.Add(lastIndex - 3);
+                    triangles.Add(lastIndex - 2);
+                    triangles.Add(lastIndex - 1);
+                }
+            }
+
+            Vector3?[] possibleConnections = new Vector3?[6];
+
+            for (int j = lastTriangleCount; j < vertices.Count; j += 3) {
+                int vertexIndex = FindIndex(V1, vertices[j]);
+                int nextVertexIndex;
+
+                if (vertexIndex == 0) {
+                    nextVertexIndex = 5;
+                } else {
+                    nextVertexIndex = vertexIndex + 2;
+                }
+
+                if (!possibleConnections[vertexIndex].HasValue || vectorEquals(possibleConnections[vertexIndex].Value, vertices[j + 2])) {
+                    possibleConnections[vertexIndex] = vertices[j + 1];
+                }
+                
+                if (!possibleConnections[nextVertexIndex].HasValue || vectorEquals(possibleConnections[nextVertexIndex].Value, vertices[j + 1])) {
+                    possibleConnections[nextVertexIndex] = vertices[j + 2];
+                }
+            }
+
+            for (int vertex1Index = 0; vertex1Index < 3; vertex1Index++) {
+                bool possible1 = possibleConnections[vertex1Index].HasValue;
+                bool possible2 = possibleConnections[vertex1Index + 3].HasValue;
+
+                int chosenPossible = -1;
+                
+                if (possible1 && !possible2 ||
+                    possible1 && vectorEquals(possibleConnections[vertex1Index].Value, possibleConnections[vertex1Index + 3].Value)) {
+                    chosenPossible = vertex1Index;
+                } else if (!possible1 && possible2) {
+                    chosenPossible = vertex1Index + 3;
+                }
+
+                if (chosenPossible != -1) {
+                    int vertex2Index;
+
+                    if (vertex1Index == 2) {
+                        vertex2Index = 0;
+                    } else {
+                        vertex2Index = vertex1Index + 1;
+                    }
+                    
                     int lastIndex = vertices.Count;
                     
-                    if (upperV.Length == 3) {
-                        triangles.Add(lastIndex - 3);
-                        triangles.Add(lastIndex - 2);
-                        triangles.Add(lastIndex - 1);
-                    } else if (upperV.Length == 4) {
-                        triangles.Add(lastIndex - 4);
-                        triangles.Add(lastIndex - 3);
-                        triangles.Add(lastIndex - 2);
-                        
-                        triangles.Add(lastIndex - 4);
-                        triangles.Add(lastIndex - 2);
-                        triangles.Add(lastIndex - 1);
-                    }
+                    vertices.Add(V1[vertex1Index]);
+                    vertices.Add(V1[vertex2Index]);
+                    vertices.Add(possibleConnections[chosenPossible].Value);
+                    
+                    triangles.Add(lastIndex + 0);
+                    triangles.Add(lastIndex + 1);
+                    triangles.Add(lastIndex + 2);
                 }
             }
         }
@@ -142,7 +136,21 @@ public class Intersect : MonoBehaviour {
             triangles = triangles.ToArray()
         };
     }
-    
+
+    int FindIndex<T>(IEnumerable<T> list, T item) {
+        int i = 0;
+
+        foreach (T listItem in list) {
+            if (listItem.Equals(item)) {
+                return i;
+            }
+
+            i++;
+        }
+
+        return -1;
+    }
+
     // Adapted from: https://web.stanford.edu/class/cs277/resources/papers/Moller1997b.pdf
     // TODO: This might not work correctly when one or more points are directly on one of the planes.
     bool GetIntersect(Vector3[] V1, Vector3[] V2, ref Vector3[] upperV) {
@@ -211,14 +219,14 @@ public class Intersect : MonoBehaviour {
         }
 
         // Order the vertices, so that the one, on the opposite side of the plane to
-        // the two others is in the middle
+        // the two others is in the middle.
+        // Also, check if one of the points isn't just on the plane itself.
 
-        // Also, check if one of the points isn't just on the plane itself
         if (sV1[1] * sV1[2] > 0) {
             if (sV1[0] == 0) {
                 return false;
             }
-            
+
             rotate3(V1, true);
             rotate3(dV1, true);
             rotate3(sV1, true);
@@ -226,7 +234,7 @@ public class Intersect : MonoBehaviour {
             if (sV1[2] == 0) {
                 return false;
             }
-            
+
             rotate3(V1, false);
             rotate3(dV1, false);
             rotate3(sV1, false);
@@ -236,7 +244,7 @@ public class Intersect : MonoBehaviour {
             if (sV2[0] == 0) {
                 return false;
             }
-            
+
             rotate3(V2, true);
             rotate3(dV2, true);
             rotate3(sV2, true);
@@ -244,7 +252,7 @@ public class Intersect : MonoBehaviour {
             if (sV2[2] == 0) {
                 return false;
             }
-            
+
             rotate3(V2, false);
             rotate3(dV2, false);
             rotate3(sV2, false);
@@ -283,7 +291,7 @@ public class Intersect : MonoBehaviour {
 
         bool betweenExclusive(float number, float[] bounds) =>
             bounds[0] > bounds[1] ? number > bounds[1] && number < bounds[0] : number > bounds[0] && number < bounds[1];
-        
+
         Vector3 intersect(int index, Vector3[] V, float[] d) =>
             V[index] + (V[index + 1] - V[index]) * d[index] / (d[index] - d[index + 1]);
 
@@ -320,7 +328,7 @@ public class Intersect : MonoBehaviour {
 
             intersects = true;
         }
-        // or between(t1[1], t2) - they are both either inside or outside (on same side, thus not touching)
+        // or betweenInclusive(t1[1], t2) - they are both either inside or outside (on same side, thus not touching)
         else if (betweenInclusive(t1[0], t2)) {
             i1 = intersect(1, V1, dV1);
             i2 = intersect(0, V1, dV1);
@@ -337,15 +345,17 @@ public class Intersect : MonoBehaviour {
             upperV[1] = i1;
             upperV[2] = i2;
         } else {
-            upperV = new Vector3[4];
-            upperV[0] = V1[2];
-            upperV[1] = V1[0];
-            upperV[2] = i2;
-            upperV[3] = i1;
-        }
+            upperV = new Vector3[3];
 
-        this.i1 = i1;
-        this.i2 = i2;
+            if (sV1[0] > 0) {
+                upperV[0] = V1[0];
+            } else {
+                upperV[0] = V1[2];
+            }
+
+            upperV[1] = i2;
+            upperV[2] = i1;
+        }
 
         return true;
     }
