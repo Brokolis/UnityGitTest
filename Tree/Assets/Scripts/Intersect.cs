@@ -6,6 +6,7 @@ public class Intersect : MonoBehaviour {
     public MeshFilter targetMeshFilter;
     public MeshFilter subtractMeshFilter;
 
+    /* kdkdkdk  kk */
     private MeshFilter meshFilter;
 
     void Start() {
@@ -17,6 +18,7 @@ public class Intersect : MonoBehaviour {
     }
 
     void Update_CutMesh() {
+        /***/
         meshFilter.mesh = CutMesh(targetMeshFilter, subtractMeshFilter);
     }
 
