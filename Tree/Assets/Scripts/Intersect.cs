@@ -6,7 +6,8 @@ public class Intersect : MonoBehaviour {
     public MeshFilter targetMeshFilter;
     public MeshFilter subtractMeshFilter;
 
-    /* kdkdkdk  kk */
+
+    /** jhjhjhjh */
     private MeshFilter meshFilter;
 
     void Start() {
